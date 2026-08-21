@@ -233,7 +233,7 @@ def execute(context):
 
     df_persons["high_income"] = df_persons["household_income"] == "5000+"
 
-    # Munich residents
-    df_persons["is_munich_resident"] = df_persons["inside_munich"]
+    # City residents
+    df_persons["is_munich_resident"] = df_persons["inside_stadt"]
 
     return df_persons

@@ -4,14 +4,20 @@ fake IRIS for each municipality in Germany. See the `codes` stage for more infor
 """
 
 def configure(context):
-    context.stage("bavaria.data.population.raw")
+    context.stage("bavaria.data.census.population")
 
 def execute(context):
     # Load shapes
-    df = context.stage("bavaria.data.population.raw")[["municipality_code", "geometry"]]
+    df_joined_fil, _, _, _ = context.stage("bavaria.data.census.population")
+    df = df_joined_fil[["commune_id", "raster_id", "geometry"]].rename(
+        columns={"commune_id": "municipality_code"}
+    )
+
+    #df = context.stage("bavaria.data.population.raw")[["municipality_code", "geometry"]]
 
     # Clean up identifiers
     df["commune_id"] = df["municipality_code"].astype("category")
+    df["raster_id"] = df["raster_id"].astype("category")
 
     # Fake IRIS
     df["iris_id"] = df["commune_id"].astype(str) + "0000"
@@ -24,4 +30,4 @@ def execute(context):
     df["region_id"] = 1
     df["region_id"] = df["region_id"].astype("category")
 
-    return df[["iris_id", "commune_id", "departement_id", "geometry"]]
+    return df[["iris_id", "commune_id", "raster_id", "departement_id",  "geometry"]]

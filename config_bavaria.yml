@@ -7,7 +7,7 @@ working_directory: cache
 # This section defines which parts of the pipeline should be run
 run:
   - synthesis.output
-  - matsim.output
+  #- matsim.output
 
 # Here the configuraiton of the pipeline starts
 config:

@@ -101,6 +101,7 @@ def execute(context):
     # Make sure we have all municipalities in all data sets
     df_population = df_population.set_index("origin_id").reindex(municipalities).fillna(0.0)
     df_employees = df_employees.set_index("destination_id").reindex(municipalities).fillna(0.0)
+    df_distances = df_distances.groupby(["origin_id", "destination_id"])["distance_km"].mean().reset_index()
     df_distances = df_distances.set_index(["origin_id", "destination_id"]).reindex(pd.MultiIndex.from_product([
         municipalities, municipalities
     ]))

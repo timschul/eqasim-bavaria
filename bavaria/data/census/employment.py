@@ -63,6 +63,8 @@ def execute(context):
     df_codes = context.stage("bavaria.data.spatial.codes")
     df_employment = df_employment[df_employment["departement_id"].isin(df_codes["departement_id"])]
 
+    df_employment = df_employment.drop_duplicates().copy()
+
     return df_employment[["departement_id", "age_class", "sex", "weight"]]
 
 def validate(context):

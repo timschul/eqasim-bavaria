@@ -39,10 +39,10 @@ DEFAULT_FLOORS = 2
 def configure(context):
     context.stage("bavaria.data.osm.chunked")
     context.stage("data.spatial.municipalities")
-    context.stage("data.spatial.iris")
+    context.stage("bavaria.data.spatial.iris")
 
 def execute(context):
-    df_zones = context.stage("data.spatial.iris")[["geometry", "commune_id", "iris_id"]]
+    df_zones = context.stage("bavaria.data.spatial.iris")[["geometry", "raster_id", "commune_id", "iris_id"]]
     chunk_ids = context.stage("bavaria.data.osm.chunked")
 
     df_locations = []
@@ -86,8 +86,8 @@ def execute(context):
                 df_selection["floors"] = df_selection["floors"].fillna(DEFAULT_FLOORS)
                 df_selection["floors"] = np.maximum(df_selection["floors"], 1) # avoid negative
 
-                df_local = df_zones[df_zones["commune_id"] == chunk]
-                df_selection = gpd.sjoin(df_selection, df_local[["commune_id", "iris_id", "geometry"]])
+                df_local = df_zones[df_zones["raster_id"] == chunk]
+                df_selection = gpd.sjoin(df_selection, df_local[["raster_id", "commune_id", "iris_id", "geometry"]])
                 df_selection = df_selection.drop(columns = ["index_right"])
 
                 df_selection["location_type"] = osm_filter["location_type"]

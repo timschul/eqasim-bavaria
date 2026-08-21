@@ -95,7 +95,8 @@ def execute(context):
     df_kreis = df_kreis[df_kreis["departement_id"].isin(df_codes["departement_id"])]
 
     # Consolidation with population data
-    df_population = context.stage("bavaria.data.census.population")
+    df_joined_fil, _, _, df_population = context.stage("bavaria.data.census.population")
+    #df_population = context.stage("bavaria.data.census.population")
 
     required_kreis = set(df_population["commune_id"].str[:5].unique())
     available_kreis = set(df_kreis["departement_id"].unique())

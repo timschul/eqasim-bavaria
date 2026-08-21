@@ -13,7 +13,8 @@ def configure(context):
 
 def execute(context):
     # Load data
-    df_population = context.stage("bavaria.data.census.population")
+    df_joined_fil, _, _, df_census = context.stage("bavaria.data.census.population")
+    df_population = df_census[["commune_id", "raster_id", "age_class", "weight", "sex"]]
     df_employment = context.stage("bavaria.data.census.employment")
 
     df_licenses_country = context.stage("bavaria.data.census.licenses")[0]
@@ -39,11 +40,16 @@ def execute(context):
         set(df_employment["departement_id"].unique()) | 
         set(df_population["departement_id"].unique())))
 
+    
+    unique_rasters = np.sort(df_population["raster_id"].unique())  # Add numerical index for raster id
+
     commune_mapping = { c: k for k, c in enumerate(unique_communes) }
     departement_mapping = { c: k for k, c in enumerate(unique_departements) }
+    raster_mapping = { r: k for k, r in enumerate(unique_rasters) }
 
     df_population["commune_index"] = df_population["commune_id"].replace(commune_mapping)
     df_population["departement_index"] = df_population["departement_id"].replace(departement_mapping)
+    df_population["raster_index"] = df_population["raster_id"].replace(raster_mapping)
     df_employment["departement_index"] = df_employment["departement_id"].replace(departement_mapping)
     df_licenses_kreis["departement_index"] = df_licenses_kreis["departement_id"].replace(departement_mapping)
 

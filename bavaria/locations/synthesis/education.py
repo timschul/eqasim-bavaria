@@ -106,4 +106,4 @@ def execute(context):
     df_result = gpd.GeoDataFrame(df_result, crs = df_locations.crs)
 
     assert len(df_persons) == len(df_result)
-    return df_result[["person_id", "commune_id", "location_id", "geometry"]]
+    return df_result[["person_id", "commune_id", "raster_id", "location_id", "geometry"]]

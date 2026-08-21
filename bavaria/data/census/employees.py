@@ -31,6 +31,9 @@ def execute(context):
     # Remove totals
     df = df[df["municipality_name"] != "Insgesamt"].copy()
 
+    # Remove rows which start with "noch"
+    df = df[~df['municipality_name'].str.startswith('noch:', na=False)].copy()
+
     # Obtain Kreis identifier from lines without count
     f = df["count"].isna()
     df.loc[f, "kreis"] = df.loc[f, "municipality_code"]
@@ -60,6 +63,8 @@ def execute(context):
     df = df[["commune_id", "count"]].rename(columns = {
         "count": "weight"
     })
+
+    df = df.drop_duplicates().copy()
 
     # Data type
     df["weight"] = df["weight"].astype(float)

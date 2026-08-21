@@ -14,5 +14,5 @@ def execute(context):
     df = df.rename(columns = { "building_id": "home_location_id" })
 
     return df[[
-        "home_location_id", "weight", "commune_id", "iris_id", "geometry",
+        "home_location_id", "weight", "commune_id", "iris_id", "raster_id", "geometry",
     ]]

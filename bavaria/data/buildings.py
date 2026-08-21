@@ -45,11 +45,11 @@ def execute(context):
         ].copy()
 
         # Impute spatial identifiers
-        df_buildings = gpd.sjoin(df_buildings, df_zones[["geometry", "commune_id", "iris_id"]], 
-            how = "left", predicate = "within").reset_index(drop = True).drop(columns = ["index_right"])
+        df_buildings = gpd.sjoin(df_buildings, df_zones[["geometry", "raster_id", "commune_id", "iris_id"]], 
+            how = "inner", predicate = "within").reset_index(drop = True).drop(columns = ["index_right"])  # changed how to inner instead of left, so that all buildings which fall outdside the zone are filtered out
 
         df_combined.append(df_buildings[[
-            "building_id", "weight", "commune_id", "iris_id", "geometry"
+            "building_id", "weight", "commune_id", "raster_id", "iris_id", "geometry"
         ]])
 
     df_combined = gpd.GeoDataFrame(pd.concat(df_combined), crs = df_combined[0].crs)
@@ -61,7 +61,7 @@ def execute(context):
     if len(missing_zones) > 0:
         print("Adding {} centroids as buildings for missing municipalities".format(len(missing_zones)))
 
-        df_missing = df_zones[df_zones["commune_id"].isin(missing_zones)][["commune_id", "iris_id", "geometry"]].copy()
+        df_missing = df_zones[df_zones["commune_id"].isin(missing_zones)][["raster_id", "commune_id", "iris_id", "geometry"]].copy()
         df_missing["geometry"] = df_missing["geometry"].centroid
         df_missing["building_id"] = np.arange(len(df_missing)) + start_index
         df_missing["weight"] = 1.0

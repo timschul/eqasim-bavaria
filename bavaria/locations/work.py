@@ -7,7 +7,7 @@ Yield work location candidates for Germany.
 
 def configure(context):
     context.stage("bavaria.data.osm.locations")
-    context.stage("data.spatial.municipalities")
+    context.stage("bavaria.data.spatial.iris")
 
 def execute(context):
     # Load data
@@ -18,7 +18,7 @@ def execute(context):
     df["fake"] = False
 
     # Fill missing municipalities
-    df_fake = context.stage("data.spatial.municipalities")
+    df_fake = context.stage("bavaria.data.spatial.iris")
     df_fake = df_fake[~df_fake["commune_id"].isin(df["commune_id"])].copy()
 
     df_fake["geometry"] = df_fake["geometry"].centroid
@@ -31,8 +31,8 @@ def execute(context):
 
     # Merge
     df = pd.concat([
-        df[["employees", "fake", "commune_id", "iris_id", "geometry"]], 
-        df_fake[["employees", "fake", "commune_id", "iris_id", "geometry"]]
+        df[["employees", "fake", "commune_id", "iris_id", "raster_id", "geometry"]], 
+        df_fake[["employees", "fake", "commune_id", "iris_id", "raster_id", "geometry"]]
     ])
 
     # Identifiers

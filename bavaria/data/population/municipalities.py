@@ -7,12 +7,13 @@ def configure(context):
 
 def execute(context):
     # Load shapes
-    df = context.stage("bavaria.data.population.raw")[["municipality_code", "population"]]
+    df = context.stage("bavaria.data.population.raw")[["municipality_code", "population", "raster_id"]]
 
     # Clean up identifiers
     df["region_id"] = df["municipality_code"].str[:2].astype("category")
     df["departement_id"] = df["municipality_code"].str[:5].astype("category")
     df["commune_id"] = df["municipality_code"].astype("category")
+    df["raster_id"] = df["raster_id"].str[:2].astype("category")
 
     # Fake IRIS
     df["iris_id"] = df["commune_id"].astype(str) + "0000"

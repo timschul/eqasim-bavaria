@@ -18,6 +18,7 @@ def execute(context):
     df["household_id"] = np.arange(len(df))
 
     # Spatial
+    df["raster_id"] = df["raster_id"].astype(str)   
     df["commune_id"] = df["commune_id"].astype(str)
     df["iris_id"] = df["commune_id"] + "0000"
     df["iris_id"] = df["iris_id"].astype("category")

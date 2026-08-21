@@ -23,12 +23,13 @@ def configure(context):
 
 def execute(context):
     # Load codes
-    df_codes = context.stage("bavaria.data.population.raw")[["municipality_code"]]
+    df_codes = context.stage("bavaria.data.population.raw")[["municipality_code", "raster_id"]]
 
     # Clean up identifiers
     df_codes["region_id"] = df_codes["municipality_code"].str[:2].astype("category")
     df_codes["departement_id"] = df_codes["municipality_code"].str[:5].astype("category")
     df_codes["commune_id"] = df_codes["municipality_code"].astype("category")
+    df_codes["raster_id"] = df_codes["raster_id"].astype("category")
 
     # Fake IRIS
     df_codes["iris_id"] = df_codes["commune_id"].astype(str) + "0000"
@@ -38,4 +39,4 @@ def execute(context):
     df_codes["ags"] = df_codes["commune_id"].str[:5] + df_codes["commune_id"].str[9:]
     df_codes["ags"] = df_codes["ags"].astype("category")
 
-    return df_codes[["region_id", "departement_id", "commune_id", "iris_id", "ags"]]
+    return df_codes[["region_id", "departement_id", "commune_id", "raster_id", "iris_id", "ags"]]

@@ -4,57 +4,68 @@ import pandas as pd
 import shapely.geometry as sgeo
 
 """
-Loads station data for MVG
-https://www.mvg.de/.rest/zdm/stations
+Creates 2 zones for Hof:
+- Landkreis
+- Stadt
+
+This replaces the MVG zones for Munich and creates transit zones
 """
 
 def configure(context):
     context.config("data_path")
-    context.config("mvg_stations_path", "mvg/stations.json")
+    context.config("hof_landkreis_path", 
+        os.path.join(context.config("data_path"), "bavaria/zones/Landkreis_Stadt_Hof_difference.json"))
+    context.config("hof_stadt_path", 
+        os.path.join(context.config("data_path"), "bavaria/zones/Stadt_Hof.json"))
 
 def execute(context):
-    # Load raw data
-    with open("{}/{}".format(context.config("data_path"), context.config("mvg_stations_path"))) as f:
-        data = json.load(f)
-
-    # Extract all existing zones
-    zones = set()
-    split_expression = re.compile(r"[\|/]")
-
-    for station in data:
-        zones |= set(re.split(split_expression, station["tariffZones"]))
-
-    zones = set(z for z in zones if len(z) > 0)
-
-    # Convert to GeoDataFrame
-    df_stations = []
-
-    for station in data:
-        station_zones = set(re.split(split_expression, station["tariffZones"]))
-        record = { "geometry": sgeo.Point(station["longitude"], station["latitude"]) }
-
-        for z in zones:
-            record["zone_{}".format(z)] = z in station_zones
-
-        df_stations.append(record)
-
-    df_stations = gpd.GeoDataFrame(pd.DataFrame.from_records(df_stations), crs = "EPSG:4326")
-
-    # Extract zone (buffered multi-point) geometries
+    # Load GeoJSON files directly with geopandas
+    landkreis_gdf = gpd.read_file(context.config("hof_landkreis_path"))
+    stadt_gdf = gpd.read_file(context.config("hof_stadt_path"))
+    
+    # Create DataFrame for both zones
     df_zones = []
-
-    for zone in zones:
-        df_partial = df_stations[df_stations["zone_{}".format(zone)]].copy()
-        df_zones.append({ "zone": zone, "geometry": sgeo.MultiPoint(df_partial["geometry"].values) })
-
-    df_zones = gpd.GeoDataFrame(pd.DataFrame.from_records(df_zones), crs = "EPSG:4326")
+    
+    # Add Stadt (inner city)
+    df_zones.append({
+        'name': 'stadt',
+        'id': 'stadt',
+        'zone': '1',  # Changed to match Java expectation
+        'geometry': stadt_gdf.geometry.unary_union.buffer(0)  # Fix potential geometry issues
+    })
+    
+    # Add Landkreis (county)
+    df_zones.append({
+        'name': 'landkreis',
+        'id': 'landkreis',
+        'zone': '2',  # Changed to match Java expectation
+        'geometry': landkreis_gdf.geometry.unary_union.buffer(0)  # Fix potential geometry issues
+    })
+    
+    # Convert to GeoDataFrame
+    df_zones = gpd.GeoDataFrame(pd.DataFrame.from_records(df_zones), crs="EPSG:4326")    
+    # Convert to target CRS
     df_zones = df_zones.to_crs("EPSG:25832")
 
-    df_zones["geometry"] = df_zones["geometry"].buffer(400)
-    return df_zones[["zone", "geometry"]]
+    print("\nZone Information:")
+    print(df_zones[['name', 'zone']].to_string())
+    
+    # Return original zones for population synthesis
+    return df_zones[["name","zone", "geometry"]]  # Return with 'name' and 'zone' columns
 
 def validate(context):
-    if not os.path.exists("{}/{}".format(context.config("data_path"), context.config("mvg_stations_path"))):
-        raise RuntimeError("MVG zone data is not available")
-
-    return os.path.getsize("{}/{}".format(context.config("data_path"), context.config("mvg_stations_path")))
+    landkreis_path = context.config("hof_landkreis_path")
+    stadt_path = context.config("hof_stadt_path")
+    
+    files_exist = (
+        os.path.exists(landkreis_path) and 
+        os.path.exists(stadt_path)
+    )
+    if not files_exist:
+        print(f"Missing files:")
+        if not os.path.exists(landkreis_path):
+            print(f"- {landkreis_path}")
+        if not os.path.exists(stadt_path):
+            print(f"- {stadt_path}")
+        raise RuntimeError("Hof zone data files are not available")
+    return True

@@ -8,6 +8,7 @@ Yield education location candidates for Germany.
 def configure(context):
     context.stage("bavaria.data.osm.locations")
     context.stage("data.spatial.municipalities")
+    context.stage("bavaria.data.spatial.iris")
 
 MINIMUM_AREA = 20
 
@@ -32,7 +33,7 @@ def execute(context):
     df = df[~df["education_type"].isna()].copy()
 
     # Need this for the IDF logic, not for the Germany logic
-    df_fake = context.stage("data.spatial.municipalities")
+    df_fake = context.stage("bavaria.data.spatial.iris")
     df_fake = df_fake[~df_fake["commune_id"].isin(df["commune_id"])].copy()
 
     df_fake["geometry"] = df_fake["geometry"].centroid
@@ -47,8 +48,8 @@ def execute(context):
 
     # Merge
     df = pd.concat([
-        df[["fake", "commune_id", "iris_id", "education_type", "weight", "geometry"]], 
-        df_fake[["fake", "commune_id", "iris_id", "education_type", "weight", "geometry"]]
+        df[["fake", "commune_id", "iris_id", "raster_id", "education_type", "weight", "geometry"]], 
+        df_fake[["fake", "commune_id", "iris_id", "raster_id", "education_type", "weight", "geometry"]]
     ])
 
     # Convert to category

@@ -27,6 +27,6 @@ def execute(context):
     df["location_id"] = "sec_" + df["location_id"].astype(str)
 
     return df[[
-        "location_id", "commune_id", "iris_id", "geometry",
+        "location_id", "commune_id", "iris_id", "raster_id", "geometry",
         "offers_leisure", "offers_shop", "offers_other"
     ]]

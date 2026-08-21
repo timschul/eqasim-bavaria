@@ -139,13 +139,12 @@ def write_feed(feed, path):
 def cut_feed(feed, df_area, crs = None):
     feed = copy_feed(feed)
 
-    df_stops = feed["stops"]
-
-    if np.count_nonzero(df_stops["location_type"] == 1) == 0:
-        print("Warning! Location types seem to be malformatted. Keeping all stops.")
-        df_stations = df_stops.copy()
-    else:
-        df_stations = df_stops[df_stops["location_type"] == 1].copy()
+    # Spatially test *all* stops (not just location_type == 1 "station"
+    # aggregation records). Many feeds (e.g. nationwide DELFI GTFS) have
+    # most boardable bus stops as location_type == 0 without any parent
+    # station, so restricting the spatial join to type == 1 would drop
+    # almost all of them even though they are physically inside the area.
+    df_stations = feed["stops"].copy()
 
     df_stations["geometry"] = [
         geo.Point(*xy)
@@ -167,18 +166,15 @@ def cut_feed(feed, df_area, crs = None):
     df_stations = gpd.sjoin(df_stations, df_area, predicate = "within")
     final_count = len(df_stations)
 
-    print("Found %d/%d stations inside the specified area" % (final_count, initial_count))
+    print("Found %d/%d stops inside the specified area" % (final_count, initial_count))
     inside_stations = df_stations["stop_id"]
 
-    # 1) Remove stations that are not inside stations and not have a parent stop
+    # 1) Remove stops that are not inside the area themselves and do not have a parent stop inside the area
     df_stops = feed["stops"]
 
     df_stops = df_stops[
-        df_stops["parent_station"].isin(inside_stations) |
-        (
-            df_stops["parent_station"].isna() &
-            df_stops["stop_id"].isin(inside_stations)
-        )
+        df_stops["stop_id"].isin(inside_stations) |
+        df_stops["parent_station"].isin(inside_stations)
     ]
 
     feed["stops"] = df_stops.copy()

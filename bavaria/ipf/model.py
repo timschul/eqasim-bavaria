@@ -45,13 +45,15 @@ def execute(context):
     unique_sexes = np.sort(list(set(df_population["sex"]) | set(df_employment["sex"])))
     unique_employed = [True, False]
     unique_communes = np.sort(df_population["commune_index"].unique())
+    unique_rasters = np.sort(df_population["raster_index"].unique())
     unique_departements = np.sort(df_employment["departement_index"].unique())
     unique_license = [True, False]
 
     # Initialize the seed with all combinations of values
     index = pd.MultiIndex.from_product([
-        unique_communes, unique_sexes, combined_age_classes, unique_employed, unique_license
-    ], names = ["commune_index", "sex", "combined_age_class", "employed", "license"])
+        unique_rasters, unique_sexes, combined_age_classes, unique_employed, unique_license
+    ], names = ["raster_index", "sex", "combined_age_class", "employed", "license"])
+
 
     df_model = pd.DataFrame(index = index).reset_index()
     df_model["weight"] = 1.0
@@ -65,9 +67,14 @@ def execute(context):
     df_model["weight"] *= df_model["combined_age_class"].apply(lambda c: combined_age_classes_sizes[c])
 
     # Attach departement indices
-    df_spatial = df_population[["commune_index", "departement_index"]].drop_duplicates()
-    df_model["departement_index"] = df_model["commune_index"].replace(dict(zip(
-        df_spatial["commune_index"], df_spatial["departement_index"]
+    df_spatial = df_population[["commune_index", "departement_index", "raster_index"]].drop_duplicates()
+    # Attach commune and department indices using raster_index as the reference
+    df_model["commune_index"] = df_model["raster_index"].replace(dict(zip(
+        df_spatial["raster_index"], df_spatial["commune_index"]
+    )))
+
+    df_model["departement_index"] = df_model["raster_index"].replace(dict(zip(
+        df_spatial["raster_index"], df_spatial["departement_index"]
     )))
 
     # Attach individual age classes
@@ -80,69 +87,105 @@ def execute(context):
     targets = []
     
     # Population constraints
-    combinations = list(itertools.product(unique_communes, unique_sexes, population_age_classes))
-    for combination in context.progress(combinations, total = len(combinations), label = "Generating population constraints"):    
-        f_reference = df_population["commune_index"] == combination[0]
-        f_reference &= df_population["sex"] == combination[1]
-        f_reference &= df_population["age_class"] == combination[2] 
+    combinations = list(itertools.product(unique_rasters, unique_sexes, population_age_classes))
+    chunk_size = 1000  # Process combinations in chunks to reduce memory usage
     
-        f_model = df_model["commune_index"] == combination[0]
-        f_model &= df_model["sex"] == combination[1]
-        f_model &= df_model["age_class_population"] == combination[2]
-        selectors.append(f_model)
-    
-        target_weight = df_population.loc[f_reference, "weight"].sum()
-        targets.append(target_weight)
+    for chunk_start in context.progress(range(0, len(combinations), chunk_size), label = "Generating population constraints"):
+        chunk_end = min(chunk_start + chunk_size, len(combinations))
+        chunk_combinations = combinations[chunk_start:chunk_end]
+        
+        for combination in chunk_combinations:
+            raster_idx, sex_val, age_class = combination
+            
+            # Get reference weight
+            f_reference = (df_population["raster_index"] == raster_idx) & \
+                        (df_population["sex"] == sex_val) & \
+                        (df_population["age_class"] == age_class)
+            target_weight = df_population.loc[f_reference, "weight"].sum()
+            
+            # Create model filter more efficiently
+            f_model = np.zeros(len(df_model), dtype=bool)
+            mask = (df_model["raster_index"] == raster_idx) & \
+                  (df_model["sex"] == sex_val) & \
+                  (df_model["age_class_population"] == age_class)
+            f_model[mask] = True
+            
+            selectors.append(np.where(f_model)[0])
+            targets.append(target_weight)
+            
+            # Clear memory
+            del f_model
+            del mask
 
     # Employment constraints   
     combinations = list(itertools.product(unique_departements, unique_sexes, employment_age_classes))
     for combination in context.progress(combinations, total = len(combinations), label = "Generating employment constraints"):
-        f_reference = df_employment["departement_index"] == combination[0]
-        f_reference &= df_employment["sex"] == combination[1]
-        f_reference &= df_employment["age_class"] == combination[2] 
-    
-        f_model = df_model["departement_index"] == combination[0]
-        f_model &= df_model["sex"] == combination[1]
-        f_model &= df_model["age_class_employment"] == combination[2]
-        f_model &= df_model["employed"] # Only select employed!
-        selectors.append(f_model)
-    
+        departement_idx, sex_val, age_class = combination
+        
+        # Get reference weight
+        f_reference = (df_employment["departement_index"] == departement_idx) & \
+                     (df_employment["sex"] == sex_val) & \
+                     (df_employment["age_class"] == age_class)
         target_weight = df_employment.loc[f_reference, "weight"].sum()
+        
+        # Create model filter
+        f_model = np.zeros(len(df_model), dtype=bool)
+        mask = (df_model["departement_index"] == departement_idx) & \
+               (df_model["sex"] == sex_val) & \
+               (df_model["age_class_employment"] == age_class) & \
+               df_model["employed"]
+        f_model[mask] = True
+        
+        selectors.append(np.where(f_model)[0])
         targets.append(target_weight)
-
-    # Minimum employment age
-    f_model = df_model["combined_age_class"] < minimum_employment_age
-    f_model &= df_model["employed"]
-    selectors.append(f_model)
-    targets.append(0.0)
+        
+        del f_model
+        del mask
 
     # License country constraints
     combinations = list(itertools.product(unique_sexes, license_age_classes))
     for combination in context.progress(combinations, total = len(combinations), label = "Generating license constraints"):
-        f_reference = df_licenses_country["sex"] == combination[0]
-        f_reference &= df_licenses_country["age_class"] == combination[1] 
-    
-        f_model = df_model["sex"] == combination[0]
-        f_model &= df_model["age_class_license"] == combination[1]
-        f_model &= df_model["license"] # Only select license owners!
-        selectors.append(f_model)
-    
+        sex_val, age_class = combination
+        
+        # Get reference weight
+        f_reference = (df_licenses_country["sex"] == sex_val) & \
+                     (df_licenses_country["age_class"] == age_class)
         target_weight = df_licenses_country.loc[f_reference, "weight"].sum()
+        
+        # Create model filter
+        f_model = np.zeros(len(df_model), dtype=bool)
+        mask = (df_model["sex"] == sex_val) & \
+               (df_model["age_class_license"] == age_class) & \
+               df_model["license"]
+        f_model[mask] = True
+        
+        selectors.append(np.where(f_model)[0])
         targets.append(target_weight)
+        
+        del f_model
+        del mask
 
     # License Kreis constraints
     for departement_index in context.progress(unique_departements, total = len(unique_departements), label = "Generating license constraints per Kreis"):
+        # Get reference weight
         f_reference = df_licenses_kreis["departement_index"] == departement_index
-    
-        f_model = df_model["departement_index"] == departement_index
-        f_model &= df_model["license"] # Only select license owners!
-        selectors.append(f_model)
-    
         target_weight = df_licenses_kreis.loc[f_reference, "weight"].sum()
+        
+        # Create model filter
+        f_model = np.zeros(len(df_model), dtype=bool)
+        mask = (df_model["departement_index"] == departement_index) & \
+               df_model["license"]
+        f_model[mask] = True
+        
+        selectors.append(np.where(f_model)[0])
         targets.append(target_weight)
+        
+        del f_model
+        del mask
 
-    # Transform to index-based
-    selectors = [np.nonzero(s.values) for s in selectors]
+    # Transform to index-based - no longer needed since we're already using indices
+    selectors = [s for s in selectors]
+    
     
     # Perform IPF
     iteration = 0
@@ -182,6 +225,9 @@ def execute(context):
     df_model["sex"] = df_model["sex"].replace({ 1: "male", 2: "female" }).astype("category")
 
     # Add identifiers
+    df_model = pd.merge(df_model, df_population[["raster_index", "raster_id"]].drop_duplicates(), on = "raster_index", how = "left")
+    assert np.count_nonzero(df_model["raster_id"].isna()) == 0
+    
     df_model = pd.merge(df_model, df_population[["commune_index", "commune_id"]].drop_duplicates(), on = "commune_index", how = "left")
     assert np.count_nonzero(df_model["commune_id"].isna()) == 0
 
@@ -189,4 +235,4 @@ def execute(context):
     assert np.count_nonzero(df_model["departement_id"].isna()) == 0
 
     df_model = df_model.rename(columns = { "combined_age_class": "age_class" })
-    return df_model[["commune_id", "departement_id", "sex", "age_class", "employed", "license", "weight"]]
+    return df_model[[ "raster_id", "commune_id", "departement_id", "sex", "age_class", "employed", "license", "weight"]]

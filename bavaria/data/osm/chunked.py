@@ -8,6 +8,7 @@ it more easily later on.
 
 def configure(context):
     context.stage("data.spatial.municipalities")
+    context.stage("bavaria.data.spatial.iris")
     context.stage("bavaria.data.osm.osmconvert")
 
     context.config("processes")
@@ -27,7 +28,7 @@ def process_municipality(context, zone_id):
     
 def execute(context):
     # Load zones and convert to polyfiles
-    df_zones = context.stage("data.spatial.municipalities")[["commune_id", "geometry"]]
+    df_zones = context.stage("bavaria.data.spatial.iris")[["raster_id", "geometry"]]
     df_zones = df_zones.to_crs("EPSG:4326")
 
     for zone_id, geometry in df_zones.itertuples(index = False):
@@ -53,10 +54,10 @@ def execute(context):
             "input_path": os.path.abspath("{}/{}".format(context.config("data_path"), context.config("osm_path_bavaria"))),
             "local_path": context.path()
         }) as parallel:
-            for item in parallel.imap(process_municipality, df_zones["commune_id"].values):
+            for item in parallel.imap(process_municipality, df_zones["raster_id"].values):
                 progress.update()
 
-    return df_zones["commune_id"].values
+    return df_zones["raster_id"].values
 
 def validate(context):
     return os.path.getsize("{}/{}".format(context.config("data_path"), context.config("osm_path_bavaria")))
