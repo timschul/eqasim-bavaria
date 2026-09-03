@@ -75,6 +75,82 @@ def execute(context):
     df_model["age_class_employment"] = df_model["combined_age_class"].replace(employment_age_mapping)
     df_model["age_class_license"] = df_model["combined_age_class"].replace(license_age_mapping)
 
+    # --- Fix (D_matsim-magdeburg Ae-112, timschul/eqasim-bavaria fork): the
+    # employment and license constraints below only ever selected the *True*
+    # side (df_model["employed"] / df_model["license"]) and left the *False*
+    # side unconstrained. Wherever a license/employment age class straddles a
+    # population age class boundary (e.g. license class 18-20 crossing the
+    # population's 18/21 split), the IPF had no anchor stopping it from
+    # shifting people across the population age boundary to satisfy the
+    # True-side target alone - observed for marego/Sachsen-Anhalt as a
+    # doubling of the 18-19 age year (11.300 vs. a flat ~5.730/year census)
+    # and a matching hole at age 20 (1.020). Binding the False side too
+    # (population total for that bucket minus the True-side target) removes
+    # that degree of freedom without touching the True-side targets or the
+    # raking loop itself.
+    # A population age class is in general coarser than (and not aligned
+    # with) the employment/license age classes - that is exactly why
+    # combined_age_classes exists. Naively assigning a whole population
+    # bracket to whichever side of an employment/license boundary its lower
+    # bound falls on would just move the same "which side of the boundary
+    # gets the weight" problem one level down. Instead, each population
+    # row's weight is split across the combined_age_class sub-brackets it
+    # spans, proportional to sub-bracket width - the same uniform-density-
+    # within-bracket assumption already used above for the raking seed
+    # prior ("Provide a prior based on the size of the age classes"). Only
+    # then is it aggregated into employment/license buckets, via the same
+    # *_age_mapping dictionaries df_model itself uses.
+    population_age_upper_by_class = dict(zip(population_age_classes, population_age_upper))
+    combined_by_population_age = {
+        population_age: [
+            c for c in combined_age_classes
+            if population_age <= c < population_age_upper_by_class[population_age]
+        ]
+        for population_age in population_age_classes
+    }
+
+    df_population_expanded = []
+    for population_age, sub_classes in combined_by_population_age.items():
+        total_width = sum(combined_age_classes_sizes[c] for c in sub_classes)
+        subset = df_population[df_population["age_class"] == population_age][["commune_index", "sex", "weight"]]
+
+        for c in sub_classes:
+            share = combined_age_classes_sizes[c] / total_width
+            expanded = subset.copy()
+            expanded["combined_age_class"] = c
+            expanded["weight"] = expanded["weight"] * share
+            df_population_expanded.append(expanded)
+
+    df_population_expanded = pd.concat(df_population_expanded, ignore_index = True)
+    df_population_expanded["departement_index"] = df_population_expanded["commune_index"].replace(dict(zip(
+        df_spatial["commune_index"], df_spatial["departement_index"]
+    )))
+    df_population_expanded["age_class_employment"] = df_population_expanded["combined_age_class"].replace(
+        employment_age_mapping)
+    df_population_expanded["age_class_license"] = df_population_expanded["combined_age_class"].replace(
+        license_age_mapping)
+
+    population_totals_employment = df_population_expanded.groupby(
+        ["departement_index", "sex", "age_class_employment"])["weight"].sum()
+    population_totals_license_country = df_population_expanded.groupby(
+        ["sex", "age_class_license"])["weight"].sum()
+    population_totals_departement = df_population_expanded.groupby("departement_index")["weight"].sum()
+
+    def not_side_target(total_lookup, key, true_side_target):
+        """Population total for `key` minus the True-side target, i.e. the
+        target for the False side of the same binary split. Negative results
+        (True-side target exceeds the population total for that bucket, a
+        sign of inconsistent input data rather than a modelling choice) are
+        reported and clipped to zero rather than silently accepted."""
+        total = total_lookup.get(key, 0.0)
+        target = total - true_side_target
+        if target < 0:
+            print("WARNING (Ae-112 fix): False-side target below zero for", key,
+                  "- total population", total, "vs. True-side target", true_side_target,
+                  "- clipped to 0. Likely inconsistent input data across sources.")
+            target = 0.0
+        return target
+
     # Initialize weighting selectors and targets
     selectors = []
     targets = []
@@ -106,9 +182,18 @@ def execute(context):
         f_model &= df_model["age_class_employment"] == combination[2]
         f_model &= df_model["employed"] # Only select employed!
         selectors.append(f_model)
-    
+
         target_weight = df_employment.loc[f_reference, "weight"].sum()
         targets.append(target_weight)
+
+        # Ae-112 fix: bind the not-employed side of the same bucket too, see
+        # comment above `not_side_target`.
+        f_model_not_employed = df_model["departement_index"] == combination[0]
+        f_model_not_employed &= df_model["sex"] == combination[1]
+        f_model_not_employed &= df_model["age_class_employment"] == combination[2]
+        f_model_not_employed &= ~df_model["employed"]
+        selectors.append(f_model_not_employed)
+        targets.append(not_side_target(population_totals_employment, combination, target_weight))
 
     # Minimum employment age
     f_model = df_model["combined_age_class"] < minimum_employment_age
@@ -126,9 +211,16 @@ def execute(context):
         f_model &= df_model["age_class_license"] == combination[1]
         f_model &= df_model["license"] # Only select license owners!
         selectors.append(f_model)
-    
+
         target_weight = df_licenses_country.loc[f_reference, "weight"].sum()
         targets.append(target_weight)
+
+        # Ae-112 fix: bind the no-license side of the same bucket too.
+        f_model_no_license = df_model["sex"] == combination[0]
+        f_model_no_license &= df_model["age_class_license"] == combination[1]
+        f_model_no_license &= ~df_model["license"]
+        selectors.append(f_model_no_license)
+        targets.append(not_side_target(population_totals_license_country, combination, target_weight))
 
     # License Kreis constraints
     for departement_index in context.progress(unique_departements, total = len(unique_departements), label = "Generating license constraints per Kreis"):
@@ -137,9 +229,15 @@ def execute(context):
         f_model = df_model["departement_index"] == departement_index
         f_model &= df_model["license"] # Only select license owners!
         selectors.append(f_model)
-    
+
         target_weight = df_licenses_kreis.loc[f_reference, "weight"].sum()
         targets.append(target_weight)
+
+        # Ae-112 fix: bind the no-license side of the same Kreis too.
+        f_model_no_license = df_model["departement_index"] == departement_index
+        f_model_no_license &= ~df_model["license"]
+        selectors.append(f_model_no_license)
+        targets.append(not_side_target(population_totals_departement, departement_index, target_weight))
 
     # Transform to index-based
     selectors = [np.nonzero(s.values) for s in selectors]

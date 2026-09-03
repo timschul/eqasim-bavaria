@@ -9,3 +9,9 @@ data/lyon_2015
 .idea
 
 config_local_*.yml
+
+# marego-Laufumgebung (D_matsim-magdeburg): config_marego.yml traegt lokale
+# absolute Pfade und gehoert nicht in dieses (jetzt oeffentliche) Fork-Repository;
+# marego ist eine Junction auf population/marego im Modellrepository.
+config_marego.yml
+marego
